@@ -13,6 +13,19 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_PORT = 9222
+PDF_OPTIONS = {
+    'landscape',           # boolean - Paper orientation. Defaults to false.
+    'displayHeaderFooter', # boolean -Display header and footer. Defaults to false.
+    'printBackground',     # boolean - Print background graphics. Defaults to false.
+    'scale',               # number - Scale of the webpage rendering. Defaults to 1.
+    'paperWidth',          # number - Paper width in inches. Defaults to 8.5 inches.
+    'paperHeight',         # number - Paper height in inches. Defaults to 11 inches.
+    'marginTop',           # number - Top margin in inches. Defaults to 1cm (~0.4 inches).
+    'marginBottom',        # number - Bottom margin in inches. Defaults to 1cm (~0.4 inches).
+    'marginLeft',          # number - Left margin in inches. Defaults to 1cm (~0.4 inches).
+    'marginRight',         # number - Right margin in inches. Defaults to 1cm (~0.4 inches).
+    'pageRanges'           # string - Paper ranges to print, e.g., '1-5, 8, 11-13'. Defaults to the empty string, which means print all pages.
+}
 
 
 async def get_debug_url(session, host=DEFAULT_HOST, port=DEFAULT_PORT):
@@ -36,7 +49,8 @@ def send_message(ws, command):
     return command[0], command[1]['id']
 
 
-async def send_print_command(ws, print_url):
+async def send_print_command(ws, print_url, **options):
+    params = {x: y for x, y in options.items() if x in PDF_OPTIONS}
     command_list = [
         (None, {"id": 1, "method": "Page.enable", "params": {}}),
         ('Page.frameStoppedLoading', {"id": 2, "method": "Page.navigate",
@@ -44,7 +58,7 @@ async def send_print_command(ws, print_url):
                 "url": print_url
             }
         }),
-        (None, {"id": 3, "method": "Page.printToPDF", "params": {}})
+        (None, {"id": 3, "method": "Page.printToPDF", "params": params})
     ]
     pdf_bytes = None
     wait_for_event = send_message(ws, command_list[0])
@@ -90,14 +104,14 @@ async def wait_for_port(ip, port, num_tries=3, timeout=5, loop=None):
             writer.close()
 
 
-async def get_pdf(url, loop=None, host=DEFAULT_HOST, port=DEFAULT_PORT):
+async def get_pdf(url, loop=None, host=DEFAULT_HOST, port=DEFAULT_PORT, **options):
     if loop is None:
         loop = asyncio.get_event_loop()
     async with aiohttp.ClientSession(loop=loop) as session:
         debugger_url = await get_debug_url(session, host=host, port=port)
         logger.debug('Connecting to %s', debugger_url)
         async with session.ws_connect(debugger_url) as ws:
-            pdf_bytes = await send_print_command(ws, url)
+            pdf_bytes = await send_print_command(ws, url, **options)
             if pdf_bytes is None:
                 raise Exception('Could not get PDF.')
             return BytesIO(pdf_bytes)
@@ -105,7 +119,7 @@ async def get_pdf(url, loop=None, host=DEFAULT_HOST, port=DEFAULT_PORT):
 
 class ChromeContextManager:
     def __init__(self, loop=None, chrome_binary='/usr/local/bin/chromium',
-                             host=DEFAULT_HOST, port=9222):
+                             host=DEFAULT_HOST, port=9222, **options):
         if loop is None:
             loop = asyncio.get_event_loop()
         self.loop = loop
@@ -149,22 +163,19 @@ class ChromeContextManager:
         logger.debug('Chrome terminated.')
 
 
-async def get_pdf_with_chrome(url, loop=None, **chrome_options):
+async def get_pdf_with_chrome(url, loop=None, params=None, **options):
     if loop is None:
         loop = asyncio.get_event_loop()
-    async with ChromeContextManager(loop, **chrome_options):
-        return await get_pdf(url, loop,
-                             host=chrome_options.get('host', DEFAULT_HOST),
-                             port=chrome_options.get('port', DEFAULT_PORT),
-                     )
+    async with ChromeContextManager(loop, **options):
+        return await get_pdf(url, loop, **options)
 
 
-def get_pdf_sync(url, **options):
+def get_pdf_sync(url, params=None, **options):
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(get_pdf(url, loop=loop, **options))
 
 
-def get_pdf_with_chrome_sync(url, **chrome_options):
+def get_pdf_with_chrome_sync(url, params=None, **options):
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(get_pdf_with_chrome(url, loop=loop,
-                                                       **chrome_options))
+                                                       **options))
