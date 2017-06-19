@@ -3,9 +3,11 @@ import base64
 import json
 import logging
 from io import BytesIO
+from os import getcwd, chdir
 import tempfile
 
 import aiohttp
+from aiohttp.client_exceptions import ClientConnectorError
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +18,16 @@ DEFAULT_PORT = 9222
 async def get_debug_url(session, host=DEFAULT_HOST, port=DEFAULT_PORT):
     debug_url = 'http://%s:%s/json/list' % (host, port)
     logger.debug('Getting debug URL...')
-    async with session.get(debug_url) as resp:
-        assert resp.status == 200
-        resp = json.loads(await resp.text())
-        return resp[0]['webSocketDebuggerUrl']
+    for i in range(10):
+        try:
+            async with session.get(debug_url) as resp:
+                assert resp.status == 200
+                resp = json.loads(await resp.text())
+                return resp[0]['webSocketDebuggerUrl']
+        except ClientConnectorError:
+            await asyncio.sleep(0.5)
+            if i == 9:
+                raise
 
 
 def send_message(ws, command):
@@ -107,15 +115,29 @@ class ChromeContextManager:
 
     async def __aenter__(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.args = [self.chrome_binary, '--headless', '--disable-gpu',
+        tmpname = self.temp_dir.name
+        self.args = [
+            self.chrome_binary,
+            '--headless',
+            '--disable-gpu',
+            '--no-sandbox',
+            '--single-process',
+            '--data-path=' + tmpname,
+            '--homedir=' + tmpname,
+            '--disk-cache-dir=' + tmpname,
             '--remote-debugging-port=%s' % self.port,
             '--remote-debugging-address=%s' % self.host,
-            '--user-data-dir=%s' % self.temp_dir.name]
+            '--user-data-dir=%s' % tmpname
+        ]
         logger.debug('Starting chrome: %s', self.chrome_binary)
-        self.proc = await asyncio.create_subprocess_exec(*self.args,
-                                                         loop=self.loop)
+        cwd = getcwd()
+        chdir(tmpname)
+        try:
+            self.proc = await asyncio.create_subprocess_exec(*self.args,
+                                                             loop=self.loop)
+        finally:
+            chdir(cwd)
         logger.debug('Started, waiting for debug port...')
-        await asyncio.sleep(1)  # Not sure why this is necessary...
         await wait_for_port(self.host, self.port, loop=self.loop)
         logger.debug('Debug port available.')
 
