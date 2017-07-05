@@ -53,12 +53,13 @@ async def send_print_command(ws, print_url, **options):
     params = {x: y for x, y in options.items() if x in PDF_OPTIONS}
     command_list = [
         (None, {"id": 1, "method": "Page.enable", "params": {}}),
-        ('Page.frameStoppedLoading', {"id": 2, "method": "Page.navigate",
+        (None, {"id": 2, "method": "Network.enable", "params": {}}),
+        ('Page.frameStoppedLoading', {"id": 3, "method": "Page.navigate",
             "params": {
                 "url": print_url
             }
         }),
-        (None, {"id": 3, "method": "Page.printToPDF", "params": params})
+        ('Page.loadEventFired', {"id": 4, "method": "Page.printToPDF", "params": params})
     ]
     pdf_bytes = None
     wait_for_event = send_message(ws, command_list[0])
