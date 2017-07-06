@@ -4,6 +4,8 @@ import json
 import logging
 from io import BytesIO
 from os import getcwd, chdir
+from time import sleep
+import datetime
 import tempfile
 
 import aiohttp
@@ -43,48 +45,86 @@ async def get_debug_url(session, host=DEFAULT_HOST, port=DEFAULT_PORT):
                 raise
 
 
-def send_message(ws, command):
-    logger.debug('-> %s', command[1])
-    ws.send_str(json.dumps(command[1]))
-    return command[0], command[1]['id']
-
-
-async def send_print_command(ws, print_url, **options):
-    params = {x: y for x, y in options.items() if x in PDF_OPTIONS}
-    command_list = [
-        (None, {"id": 1, "method": "Page.enable", "params": {}}),
-        (None, {"id": 2, "method": "Network.enable", "params": {}}),
-        ('Page.frameStoppedLoading', {"id": 3, "method": "Page.navigate",
-            "params": {
-                "url": print_url
-            }
-        }),
-        ('Page.loadEventFired', {"id": 4, "method": "Page.printToPDF", "params": params})
-    ]
-    pdf_bytes = None
-    wait_for_event = send_message(ws, command_list[0])
-    index = 1
+async def receive_messages(ws, pending_requests):
     async for msg in ws:
         if msg.type == aiohttp.WSMsgType.TEXT:
             result = json.loads(msg.data)
             if 'error' in result:
                 raise Exception(str(result))
-            logger.debug('<- %s', result)
-            if ((wait_for_event[0] is None and
-                        result.get('id') == wait_for_event[1]) or
-                        result.get('method') == wait_for_event[0]):
-                if index < len(command_list):
-                    wait_for_event = send_message(ws, command_list[index])
-                    index += 1
-                else:
-                    pdf_bytes = base64.b64decode(result['result']['data'])
-                    await ws.close()
-                    break
+            method = result.get('method')
+            if method == 'Network.requestWillBeSent':
+                pending_requests.add(result['params']['requestId'])
+            elif method == 'Network.loadingFinished':
+                pending_requests.remove(result['params']['requestId'])
+            # print(result)
+            yield result
         elif msg.type == aiohttp.WSMsgType.CLOSED:
             break
         elif msg.type == aiohttp.WSMsgType.ERROR:
             break
-    return pdf_bytes
+
+
+async def wait_until(worker, method=None, id=None):
+    if method is not None:
+        key = 'method'
+        val = method
+    else:
+        key = 'id'
+        val = id
+    async for msg in worker.iter:
+        if msg.get(key) == val:
+            return msg
+
+
+async def wait_for_network(worker, timeout=20):
+    delta = datetime.timedelta(seconds=timeout)
+    time = datetime.datetime.now()
+
+    while True:
+        sleep(0.2)
+
+        # send dummy request and wait until response
+        id1 = worker.send('Network.enable')
+        await wait_until(worker, id=id1)
+
+        if not worker.pending_requests:
+            break
+        else:
+            print('Pending requests, waiting')
+
+        if time + delta < datetime.datetime.now():
+            break
+
+
+class MessageWorker:
+
+    def __init__(self, ws):
+        self.ws = ws
+        self.pending_requests = set()
+        self.count = 0
+        self.iter = receive_messages(self.ws, self.pending_requests)
+
+    def send(self, method, **params):
+        self.count += 1
+        msg = {'id': self.count, 'method': method, 'params': params}
+        self.ws.send_str(json.dumps(msg))
+        return self.count
+
+
+async def send_print_command(ws, print_url, **options):
+    params = {x: y for x, y in options.items() if x in PDF_OPTIONS}
+
+    worker = MessageWorker(ws)
+
+    worker.send('Page.enable')
+    worker.send('Network.enable')
+    worker.send('Page.navigate', url=print_url)
+    await wait_until(worker, method='Page.frameStoppedLoading')
+    await wait_for_network(worker, 20)
+    msgid = worker.send('Page.printToPDF', **params)
+    result = await wait_until(worker, id=msgid)
+    await ws.close()
+    return base64.b64decode(result['result']['data'])
 
 
 async def wait_for_port(ip, port, num_tries=3, timeout=5, loop=None):
