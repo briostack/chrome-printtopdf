@@ -84,7 +84,7 @@ async def wait_for_network(worker, timeout=20):
         sleep(0.2)
 
         # send dummy request and wait until response
-        id1 = worker.send('Network.enable')
+        id1 = await worker.send('Network.enable')
         await wait_until(worker, id=id1)
 
         if not worker.pending_requests:
@@ -104,10 +104,10 @@ class MessageWorker:
         self.count = 0
         self.iter = receive_messages(self.ws, self.pending_requests)
 
-    def send(self, method, **params):
+    async def send(self, method, **params):
         self.count += 1
         msg = {'id': self.count, 'method': method, 'params': params}
-        self.ws.send_str(json.dumps(msg))
+        await self.ws.send_str(json.dumps(msg))
         return self.count
 
 
@@ -116,12 +116,12 @@ async def send_print_command(ws, print_url, **options):
 
     worker = MessageWorker(ws)
 
-    worker.send('Page.enable')
-    worker.send('Network.enable')
-    worker.send('Page.navigate', url=print_url)
+    await worker.send('Page.enable')
+    await worker.send('Network.enable')
+    await worker.send('Page.navigate', url=print_url)
     await wait_until(worker, method='Page.frameStoppedLoading')
     await wait_for_network(worker, 20)
-    msgid = worker.send('Page.printToPDF', **params)
+    msgid = await worker.send('Page.printToPDF', **params)
     result = await wait_until(worker, id=msgid)
     await ws.close()
     return base64.b64decode(result['result']['data'])
