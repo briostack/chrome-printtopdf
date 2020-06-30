@@ -159,7 +159,7 @@ async def get_pdf(url, loop=None, host=DEFAULT_HOST, port=DEFAULT_PORT, **option
 
 
 class ChromeContextManager:
-    def __init__(self, loop=None, chrome_binary='/usr/local/bin/chromium',
+    def __init__(self, loop=None, chrome_binary='/opt/bin/chromium',
                              host=DEFAULT_HOST, port=9222, **options):
         if loop is None:
             loop = asyncio.get_event_loop()
@@ -174,15 +174,51 @@ class ChromeContextManager:
         self.args = [
             self.chrome_binary,
             '--headless',
-            '--disable-gpu',
-            '--no-sandbox',
+            # '--disable-gpu',
             '--single-process',
             '--data-path=' + tmpname,
             '--homedir=' + tmpname,
             '--disk-cache-dir=' + tmpname,
             '--remote-debugging-port=%s' % self.port,
             '--remote-debugging-address=%s' % self.host,
-            '--user-data-dir=%s' % tmpname
+            '--user-data-dir=%s' % tmpname,
+
+            '--autoplay-policy=user-gesture-required',
+            '--disable-background-networking',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-breakpad',
+            '--disable-client-side-phishing-detection',
+            '--disable-component-update',
+            '--disable-default-apps',
+            '--disable-dev-shm-usage',
+            '--disable-domain-reliability',
+            '--disable-extensions',
+            '--disable-features=AudioServiceOutOfProcess',
+            '--disable-hang-monitor',
+            '--disable-ipc-flooding-protection',
+            '--disable-notifications',
+            '--disable-offer-store-unmasked-wallet-cards',
+            '--disable-popup-blocking',
+            '--disable-print-preview',
+            '--disable-prompt-on-repost',
+            '--disable-renderer-backgrounding',
+            '--disable-setuid-sandbox',
+            '--disable-speech-api',
+            '--disable-sync',
+            '--disk-cache-size=33554432',
+            '--hide-scrollbars',
+            '--ignore-gpu-blacklist',
+            '--metrics-recording-only',
+            '--mute-audio',
+            '--no-default-browser-check',
+            '--no-first-run',
+            '--no-pings',
+            '--no-sandbox',
+            '--no-zygote',
+            '--password-store=basic',
+            '--use-gl=swiftshader',
+            '--use-mock-keychain',
         ]
         logger.debug('Starting chrome: %s', self.chrome_binary)
         cwd = getcwd()
