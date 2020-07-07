@@ -151,7 +151,7 @@ async def get_pdf(url, loop=None, host=DEFAULT_HOST, port=DEFAULT_PORT, **option
     async with aiohttp.ClientSession(loop=loop) as session:
         debugger_url = await get_debug_url(session, host=host, port=port)
         logger.debug('Connecting to %s', debugger_url)
-        async with session.ws_connect(debugger_url) as ws:
+        async with session.ws_connect(debugger_url, max_msg_size=209715200) as ws:  # 200 MB
             pdf_bytes = await send_print_command(ws, url, **options)
             if pdf_bytes is None:
                 raise Exception('Could not get PDF.')
